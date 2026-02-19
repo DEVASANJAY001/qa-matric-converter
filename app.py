@@ -1,16 +1,19 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="DVX Merge Tool", layout="wide")
+st.title("DVX + SCA + YARD Merge Tool")
 
-st.title("DVX + SCA + YARD → Final Merge Tool")
+st.write("Upload all 3 files. Final file keeps all DVX columns.")
 
-st.write("Upload all 3 files. Final file will keep all DVX columns.")
-
-# Uploaders
 dvx_file = st.file_uploader("Upload DVX Excel", type=["xlsx"])
 sca_file = st.file_uploader("Upload SCA Excel", type=["xlsx"])
 yard_file = st.file_uploader("Upload YARD Excel", type=["xlsx"])
+
+
+def clean_columns(df):
+    df.columns = df.columns.str.strip().str.lower()
+    return df
+
 
 if dvx_file and sca_file and yard_file:
 
@@ -19,68 +22,63 @@ if dvx_file and sca_file and yard_file:
     yard = pd.read_excel(yard_file)
 
     # Clean column names
-    dvx.columns = dvx.columns.str.strip()
-    sca.columns = sca.columns.str.strip()
-    yard.columns = yard.columns.str.strip()
+    dvx = clean_columns(dvx)
+    sca = clean_columns(sca)
+    yard = clean_columns(yard)
 
-    key = "Defect Description Details"
+    # KEY COLUMN
+    key = "defect description details"
 
     if key not in dvx.columns:
-        st.error(f"{key} not found in DVX")
+        st.error("Column not found in DVX: Defect Description Details")
         st.stop()
 
     if key not in sca.columns:
-        st.error(f"{key} not found in SCA")
+        st.error("Column not found in SCA: Defect Description Details")
         st.stop()
 
     if key not in yard.columns:
-        st.error(f"{key} not found in YARD")
+        st.error("Column not found in YARD: Defect Description Details")
         st.stop()
 
-    st.success("Files loaded successfully")
+    # -------- MERGE SCA --------
+    sca_cols_needed = [
+        "defect description details",
+        "gravity",
+        "defect responsibility"
+    ]
 
-    # ===== COMMON COLUMNS =====
-    sca_common = [c for c in sca.columns if c in dvx.columns and c != key]
-    yard_common = [c for c in yard.columns if c in dvx.columns and c != key]
+    sca_small = sca[sca_cols_needed].drop_duplicates()
 
-    sca_use = sca[[key] + sca_common]
-    yard_use = yard[[key] + yard_common]
-
-    final = dvx.copy()
-
-    # merge SCA
-    final = final.merge(
-        sca_use,
-        on=key,
+    merged = pd.merge(
+        dvx,
+        sca_small,
+        on="defect description details",
         how="left",
         suffixes=("", "_sca")
     )
 
-    # merge YARD
-    final = final.merge(
-        yard_use,
-        on=key,
+    # -------- MERGE YARD --------
+    yard_small = yard.drop_duplicates(subset=[key])
+
+    merged = pd.merge(
+        merged,
+        yard_small,
+        on="defect description details",
         how="left",
         suffixes=("", "_yard")
     )
 
-    st.subheader("Preview Final Data")
-    st.dataframe(final.head(50), use_container_width=True)
+    st.success("Merge completed!")
 
-    # download
-    output = final.to_excel(index=False, engine="openpyxl")
+    st.dataframe(merged.head())
 
-    import io
-    buffer = io.BytesIO()
-    final.to_excel(buffer, index=False)
-    buffer.seek(0)
+    output = "FINAL_DVX_MERGED.xlsx"
+    merged.to_excel(output, index=False)
 
-    st.download_button(
-        label="Download Final Excel",
-        data=buffer,
-        file_name="FINAL_OUTPUT.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-else:
-    st.info("Upload DVX, SCA and YARD files to begin")
+    with open(output, "rb") as f:
+        st.download_button(
+            "Download Final Excel",
+            f,
+            file_name=output
+        )
