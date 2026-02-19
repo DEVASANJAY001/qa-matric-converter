@@ -1,88 +1,77 @@
 import streamlit as st
 import pandas as pd
 
-st.title("DVX + SCA + YARD Merge Tool")
+st.title("DVX + SCA + YARD Final Builder")
 
 dvx_file = st.file_uploader("Upload DVX", type=["xlsx"])
 sca_file = st.file_uploader("Upload SCA", type=["xlsx"])
 yard_file = st.file_uploader("Upload YARD", type=["xlsx"])
 
-if st.button("Merge Files"):
+if st.button("Generate Final"):
 
     if not dvx_file:
-        st.error("Upload DVX file first")
+        st.error("Upload DVX first")
         st.stop()
 
-    # ---------------- LOAD ----------------
+    # ---------------- LOAD DVX ----------------
     dvx = pd.read_excel(dvx_file)
     dvx.columns = dvx.columns.str.strip()
 
+    dvx_cols = dvx.columns.tolist()
+    key = "Defect Description Details"
+
     final_df = dvx.copy()
 
-    key_col = "Defect Description Details"
-
-    if key_col not in final_df.columns:
-        st.error("DVX must contain 'Defect Description Details'")
-        st.stop()
-
-    # ---------------- SCA MERGE ----------------
+    # ---------------- SCA ----------------
     if sca_file:
         sca = pd.read_excel(sca_file)
         sca.columns = sca.columns.str.strip()
 
-        if key_col in sca.columns:
+        if key in sca.columns:
 
-            # find common columns between DVX & SCA
-            common_cols_sca = list(set(dvx.columns).intersection(set(sca.columns)))
-            common_cols_sca.remove(key_col)
+            # only common cols
+            sca_common = ["Defect Description Details", "Gravity"]
+            sca_common = [c for c in sca_common if c in sca.columns]
 
-            sca_subset = sca[[key_col] + common_cols_sca].drop_duplicates()
+            sca_subset = sca[sca_common].drop_duplicates()
 
-            final_df = final_df.merge(
-                sca_subset,
-                on=key_col,
-                how="left",
-                suffixes=("", "_sca")
-            )
+            # create DVX format rows
+            sca_rows = pd.DataFrame(columns=dvx_cols)
 
-            # fill DVX blanks with SCA values
-            for col in common_cols_sca:
-                if col + "_sca" in final_df.columns:
-                    final_df[col] = final_df[col].combine_first(final_df[col + "_sca"])
-                    final_df.drop(columns=[col + "_sca"], inplace=True)
+            for _, row in sca_subset.iterrows():
+                new_row = {col: "" for col in dvx_cols}
 
-    # ---------------- YARD MERGE ----------------
+                for col in sca_common:
+                    if col in dvx_cols:
+                        new_row[col] = row[col]
+
+                sca_rows = pd.concat([sca_rows, pd.DataFrame([new_row])], ignore_index=True)
+
+            final_df = pd.concat([final_df, sca_rows], ignore_index=True)
+
+    # ---------------- YARD ----------------
     if yard_file:
         yard = pd.read_excel(yard_file)
         yard.columns = yard.columns.str.strip()
 
-        if key_col in yard.columns:
+        if key in yard.columns:
 
-            common_cols_yard = list(set(dvx.columns).intersection(set(yard.columns)))
-            common_cols_yard.remove(key_col)
+            yard_subset = yard[[key]].drop_duplicates()
 
-            yard_subset = yard[[key_col] + common_cols_yard].drop_duplicates()
+            yard_rows = pd.DataFrame(columns=dvx_cols)
 
-            final_df = final_df.merge(
-                yard_subset,
-                on=key_col,
-                how="left",
-                suffixes=("", "_yard")
-            )
+            for _, row in yard_subset.iterrows():
+                new_row = {col: "" for col in dvx_cols}
+                new_row[key] = row[key]
 
-            for col in common_cols_yard:
-                if col + "_yard" in final_df.columns:
-                    final_df[col] = final_df[col].combine_first(final_df[col + "_yard"])
-                    final_df.drop(columns=[col + "_yard"], inplace=True)
+                yard_rows = pd.concat([yard_rows, pd.DataFrame([new_row])], ignore_index=True)
 
-    st.success("Final file ready")
+            final_df = pd.concat([final_df, yard_rows], ignore_index=True)
+
+    st.success("Final ready")
     st.dataframe(final_df)
 
     final_df.to_excel("final.xlsx", index=False)
 
     with open("final.xlsx", "rb") as f:
-        st.download_button(
-            "Download Final Excel",
-            f,
-            file_name="Final_DVX.xlsx"
-        )
+        st.download_button("Download Final Excel", f, file_name="Final.xlsx")
