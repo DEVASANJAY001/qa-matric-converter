@@ -1,84 +1,107 @@
 import streamlit as st
 import pandas as pd
 
-st.title("DVX + SCA + YARD Merge Tool")
+st.set_page_config(page_title="DVX Merge Tool", layout="wide")
+st.title("📊 DVX + SCA + YARD → Final Database")
 
-st.write("Upload all 3 files. Final file keeps all DVX columns.")
+st.write("Upload DVX, SCA and YARD files to generate final merged Excel")
 
-dvx_file = st.file_uploader("Upload DVX Excel", type=["xlsx"])
-sca_file = st.file_uploader("Upload SCA Excel", type=["xlsx"])
-yard_file = st.file_uploader("Upload YARD Excel", type=["xlsx"])
+# ---------------- FILE UPLOAD ----------------
+dvx_file = st.file_uploader("Upload DVX File", type=["xlsx"])
+sca_file = st.file_uploader("Upload SCA File", type=["xlsx"])
+yard_file = st.file_uploader("Upload YARD File", type=["xlsx"])
 
+# ---------------- PROCESS ----------------
+if st.button("Generate Final File"):
 
-def clean_columns(df):
-    df.columns = df.columns.str.strip().str.lower()
-    return df
-
-
-if dvx_file and sca_file and yard_file:
-
-    dvx = pd.read_excel(dvx_file)
-    sca = pd.read_excel(sca_file)
-    yard = pd.read_excel(yard_file)
-
-    # Clean column names
-    dvx = clean_columns(dvx)
-    sca = clean_columns(sca)
-    yard = clean_columns(yard)
-
-    # KEY COLUMN
-    key = "defect description details"
-
-    if key not in dvx.columns:
-        st.error("Column not found in DVX: Defect Description Details")
+    if not dvx_file:
+        st.error("Upload DVX file first")
         st.stop()
 
-    if key not in sca.columns:
-        st.error("Column not found in SCA: Defect Description Details")
-        st.stop()
+    # -------- LOAD DVX --------
+    dvx_df = pd.read_excel(dvx_file)
+    st.success("DVX Loaded")
 
-    if key not in yard.columns:
-        st.error("Column not found in YARD: Defect Description Details")
-        st.stop()
+    # -------- LOAD SCA --------
+    if sca_file:
+        sca_df = pd.read_excel(sca_file)
+    else:
+        sca_df = pd.DataFrame()
 
-    # -------- MERGE SCA --------
-    sca_cols_needed = [
-        "defect description details",
-        "gravity",
-        "defect responsibility"
+    # -------- LOAD YARD --------
+    if yard_file:
+        yard_df = pd.read_excel(yard_file)
+    else:
+        yard_df = pd.DataFrame()
+
+    # ---------------- CLEAN COLUMN NAMES ----------------
+    dvx_df.columns = dvx_df.columns.str.strip()
+    sca_df.columns = sca_df.columns.str.strip()
+    yard_df.columns = yard_df.columns.str.strip()
+
+    # ---------------- RENAME TO MATCH DVX ----------------
+    if not sca_df.empty:
+        sca_df.rename(columns={
+            "Defect Description": "Defect Description Details",
+            "Defect Responsibility": "Defect Responsibility",
+            "Gravity": "Gravity"
+        }, inplace=True)
+
+    if not yard_df.empty:
+        yard_df.rename(columns={
+            "Description": "Defect Description Details",
+            "Defect Responsibility": "Defect Responsibility",
+            "Gravity": "Gravity"
+        }, inplace=True)
+
+    # ---------------- COMMON COLUMNS ----------------
+    common_cols = [
+        "Defect Description Details",
+        "Gravity",
+        "Defect Responsibility"
     ]
 
-    sca_small = sca[sca_cols_needed].drop_duplicates()
+    # ensure DVX has key column
+    if "Defect Description Details" not in dvx_df.columns:
+        st.error("DVX must contain 'Defect Description Details'")
+        st.stop()
 
-    merged = pd.merge(
-        dvx,
-        sca_small,
-        on="defect description details",
-        how="left",
-        suffixes=("", "_sca")
-    )
+    final_df = dvx_df.copy()
 
-    # -------- MERGE YARD --------
-    yard_small = yard.drop_duplicates(subset=[key])
+    # ---------------- MERGE SCA ----------------
+    if not sca_df.empty and "Defect Description Details" in sca_df.columns:
+        sca_subset = sca_df[[c for c in common_cols if c in sca_df.columns]].drop_duplicates()
+        final_df = pd.merge(
+            final_df,
+            sca_subset,
+            on="Defect Description Details",
+            how="left",
+            suffixes=("", "_sca")
+        )
 
-    merged = pd.merge(
-        merged,
-        yard_small,
-        on="defect description details",
-        how="left",
-        suffixes=("", "_yard")
-    )
+    # ---------------- MERGE YARD ----------------
+    if not yard_df.empty and "Defect Description Details" in yard_df.columns:
+        yard_subset = yard_df[[c for c in common_cols if c in yard_df.columns]].drop_duplicates()
+        final_df = pd.merge(
+            final_df,
+            yard_subset,
+            on="Defect Description Details",
+            how="left",
+            suffixes=("", "_yard")
+        )
 
-    st.success("Merge completed!")
+    st.success("Final file generated")
 
-    st.dataframe(merged.head())
+    st.dataframe(final_df, use_container_width=True)
 
-    output = "FINAL_DVX_MERGED.xlsx"
-    merged.to_excel(output, index=False)
+    # ---------------- DOWNLOAD ----------------
+    output_file = "final_merged.xlsx"
+    final_df.to_excel(output_file, index=False)
 
-    with open(output, "rb") as f:
+    with open(output_file, "rb") as f:
         st.download_button(
-            "Download Final Excel",
-            f,
-            file_name=output
+            label="⬇ Download Final Excel",
+            data=f,
+            file_name="Final_Database.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
